@@ -1,8 +1,8 @@
 """
-SiC-SiC Crack Propagation - CFG Grain Boundary + Damage Binning Pipeline
+Crack Propagation - CFG Grain Boundary + Damage Binning Pipeline
 =========================================================================
 Reads extended CFG files (fractional coordinates) and produces a
-2-channel 192x192 grid per timestep for ML crack propagation training:
+2-channel square grid per timestep for ML crack propagation training:
 
   Channel 0 — Grain boundary map  : fraction of grainIDs in each bin
                                      0 = pure single grain interior
@@ -10,17 +10,15 @@ Reads extended CFG files (fractional coordinates) and produces a
   Channel 1 — Void/crack map      : 1 where no atoms exist (crack/void)
                                      0 where atoms are present
 
-CFG format assumptions (from your file header):
+CFG format assumptions:
   - Fractional (reduced) coordinates, scaled by H0 box matrix
-  - Box: 440 x 640 x 69.66 Å  (H0 diagonal, orthogonal)
-  - auxiliary columns: occ | q | grainID | sysID
   - Species interleaved by mass block (Si=28.085, C=12.011)
 
 Requirements:
     pip install numpy matplotlib scipy
 
 Usage:
-    python sic_cfg_binning.py
+    python testing_code.py
 """
 
 import numpy as np
@@ -32,17 +30,16 @@ from skimage.filters import threshold_otsu
 # ─────────────────────────────────────────────
 # CONFIGURATION — edit these
 # ─────────────────────────────────────────────
-CFG_FILES = [                           # Timestep CFG files to process, in order
-    #"SiC-SiC_13.cfg", 
-    "dump.cyclic_78000.cfg"
-    #"model_9_cx_374_dump.cyclic_78000.cfg"
-    #"frame_002.cfg",
-    # Add more, or use the glob snippet at the bottom of this file
-]
+CFG_FILES = ["dump.cyclic_78000.cfg"]     # Individual processing (enter names of files here)
 
 
-#CFG_FILES = sorted(Path(".").glob("*.cfg"))
-#CFG_FILES = sorted(Path(".").glob("model_1*_78000.cfg"))
+# Batch detection
+CFG_FILES = sorted(Path(".").glob("*.cfg"))
+# CFG_FILES = sorted(Path(".").glob("model_1*_78000.cfg"))
+
+#For parse_cfg function
+columns_per_line = 9
+voronoi_volume_column_number = 9   
 
 OUTPUT_DIR  = Path("grain_crack_maps")  # Output folder
 GRID_SIZE   = 192                       # Bin resolution (192x192)
@@ -52,12 +49,13 @@ GRID_SIZE   = 192                       # Bin resolution (192x192)
 BOUNDARY_BLUR_SIGMA = 1.0              # pixels; 0.5–2.0 works well
 
 # visualisation control ---------------------------------------------------
-OVERLAY_BOUNDARY_BOOST = 50.0           # multiplier for boundaries in overlay (1=none)
+OVERLAY_BOUNDARY_BOOST = 1.0           # multiplier for boundaries in overlay (1=none)
 
 # ─────────────────────────────────────────────
 
 
 def parse_cfg(filepath: str):
+    # CFG Parsing Function
     positions = []
     grain_ids = []
     box = np.zeros(3, dtype=np.float64)
@@ -70,10 +68,10 @@ def parse_cfg(filepath: str):
 
             # ── Box vectors ──
             if line.startswith("H0(1,1)"):
-                box[0] = float(line.split("=")[1].split()[0])  # FIX 1
+                box[0] = float(line.split("=")[1].split()[0])
                 continue
             elif line.startswith("H0(2,2)"):
-                box[1] = float(line.split("=")[1].split()[0])  # FIX 1
+                box[1] = float(line.split("=")[1].split()[0])
                 continue
             elif line.startswith("H0(3,3)"):
                 box[2] = float(line.split("=")[1].split()[0])  # FIX 1
@@ -91,13 +89,13 @@ def parse_cfg(filepath: str):
             if len(parts) == 1 or len(parts) == 2:
                 continue
 
-            # ── Atom data: 9 columns ──
-            if len(parts) == 9:                              # FIX 2
+            # ── Atom data: flexible number of columns ──
+            if len(parts) == columns_per_line:                              # FIX 2
                 try:
-                    sx = float(parts[0])
+                    sx = float(parts[0])  
                     sy = float(parts[1])
                     sz = float(parts[2])
-                    grain_id = int(float(parts[8]))          # FIX 3: c_csym as grain proxy
+                    grain_id = int(float(parts[voronoi_volume_column_number - 1]))          
                     positions.append([sx * box[0], sy * box[1], sz * box[2]])
                     grain_ids.append(grain_id)
                 except ValueError:
@@ -135,8 +133,7 @@ def build_grids(positions: np.ndarray,
     # Score = (unique_count - 1) / (n_grains_total - 1)
     #   → 0.0 for a pure single-grain bin
     #   → 1.0 for a bin containing all grains (maximum mixing)
-    n_grains_total = int(grain_ids.max())   #largest value for volume
-    print(f"total number of grains{n_grains_total}")
+    n_grains_total = int(grain_ids.max())   # largest value for volume
 
     # Sort atoms by bin index for fast group-by
     order      = np.argsort(flat_idx)
@@ -163,10 +160,10 @@ def build_grids(positions: np.ndarray,
     # Optional Gaussian smoothing to soften hard boundary edges
     if blur_sigma > 0:
         boundary_grid = gaussian_filter(boundary_grid, sigma=blur_sigma).astype(np.float32)
-    #filter
+    # filter
     nonzero_vals = boundary_grid[boundary_grid > 0]
     if len(nonzero_vals) > 0:
-        thresh = threshold_otsu(nonzero_vals) * 1  # push threshold higher for cleaner boundaries
+        thresh = threshold_otsu(nonzero_vals) * 1  # push threshold higher for cleaner boundaries. e.g. change 1 to 1.25
         boundary_grid = np.where(boundary_grid > thresh, boundary_grid, 0.0).astype(np.float32)
         print(f"  Auto threshold: {thresh:.4f}")
 
@@ -253,14 +250,6 @@ def main():
     print(f"\nDone. ML arrays shape = (2, {GRID_SIZE}, {GRID_SIZE})")
     print("  channel 0 = grain boundary score")
     print("  channel 1 = crack / void mask")
-
-
-# ─────────────────────────────────────────────
-# OPTIONAL: Auto-detect all CFG files in a folder(later after testing)
-# Replace the CFG_FILES list above with:
-#
-#   CFG_FILES = sorted(Path(".").glob("*.cfg"))
-# ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     main()
