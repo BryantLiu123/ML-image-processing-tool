@@ -1,5 +1,4 @@
 # ML-image-processing-tool
-SiC-SiC Crack Propagation Preprocessing Pipeline
 A Python-based data preprocessing tool that converts atomic simulation output files (extended CFG format) from Silicon Carbide (SiC-SiC) molecular dynamics simulations into structured 2D grid representations suitable for machine learning training.
 
 The tool reads fractional coordinate data from CFG files and projects the 3D atomic positions onto a configurable 2D grid (default 192×192), producing a two-channel NumPy array per timestep:
