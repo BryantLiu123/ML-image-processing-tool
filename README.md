@@ -9,3 +9,8 @@ The tool reads fractional coordinate data from CFG files and projects the 3D ato
 Post-processing steps include optional Gaussian smoothing of grain boundary edges and automated Otsu thresholding to suppress noise and sharpen boundary detection. Each timestep also produces a three-panel diagnostic PNG — individual channel maps plus a color-coded overlay — for rapid visual quality checks.
 
 Designed as a preprocessing front-end for ML models targeting crack propagation prediction in ceramic composites, the pipeline supports sequential timestep processing to build labeled image datasets from large-scale atomistic simulations.
+
+LAMMPS input script requirements: 
+- include this compute: compute voro all voronoi/atom
+- include this in dump command: c_voro[1]
+
